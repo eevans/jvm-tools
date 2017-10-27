@@ -1,0 +1,2 @@
+This package requires access to a public maven repository, not all dependencies
+are present in Debian as packages.

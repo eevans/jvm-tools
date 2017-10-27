@@ -1,0 +1,4 @@
+version=3
+
+opts=filenamemangle=s/.*jvmtool-umbrella-pom/jvm-tools/ \
+https://github.com/aragozin/jvm-tools/releases/ /aragozin/jvm-tools/archive/jvmtool-umbrella-pom-([\d.]+).tar.gz
