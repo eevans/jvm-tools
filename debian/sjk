@@ -4,6 +4,6 @@ set -e
 set -u
 
 JAVA="${JAVA_HOME:-/usr}/bin/java"
-JAR="${SJK_JAR:-/usr/share/java/sjk.jar}"
+JAR="${SJK_JAR:-/usr/share/java/sjk-plus.jar}"
 
 exec "$JAVA" -jar "$JAR" "$@"

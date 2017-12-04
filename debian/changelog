@@ -1,3 +1,9 @@
+jvm-tools (0.8.1-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Eric Evans <eevans@wikimedia.org>  Mon, 04 Dec 2017 14:09:17 -0600
+
 jvm-tools (0.3.7-1) unstable; urgency=low
 
   * Initial release.

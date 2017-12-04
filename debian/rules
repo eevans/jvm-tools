@@ -3,24 +3,25 @@
 %:
 	dh $@
 
-upstream_version=$(shell dpkg-parsechangelog --show-field Version | cut -d- -f1)
+UPSTREAM=$(shell dpkg-parsechangelog --show-field Version | cut -d- -f1)
 
 override_dh_auto_build:
 	mvn -Dmaven.repo.local=$(CURDIR)/debian/m2-repo install
 
 override_dh_auto_install:
-	jh_installlibs sjk/target/sjk-${upstream_version}.jar
+	jh_installlibs sjk-plus/target/sjk-plus-${UPSTREAM}.jar
 	dh_auto_install
 
 override_dh_clean:
+	mvn -Dmaven.repo.local=$(CURDIR)/debian/m2-repo clean
 	-rm -rf $(CURDIR)/debian/m2-repo
-	for i in sjk-core mxdump sjk hprof-heap sjk-plus sjk-lite sjk-stacktrace ygc-bench gcflow; do \
-		rm -rf $$i/target || true; \
-		done
 	dh_clean
 
 update_manpage:
-	SJK_JAR=sjk/target/sjk-${upstream_version}.jar help2man --name "sjk - Swiss Java Knife" \
-		--section 1 --manual "User Commands" \
-		--source=Debian --output debian/sjk.1 \
+	SJK_JAR=sjk/target/sjk-${UPSTREAM}.jar help2man \
+		--name "sjk - Swiss Java Knife" \
+		--section 1 \
+		--manual "User Commands" \
+		--source=Debian \
+		--output debian/sjk.1 \
 		--no-info debian/sjk
