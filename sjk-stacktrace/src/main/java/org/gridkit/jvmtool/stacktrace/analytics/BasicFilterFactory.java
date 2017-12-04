@@ -214,6 +214,10 @@ public class BasicFilterFactory {
     public PositionalStackMatcher lastFrame(StackFrameMatcher matcher) {
         return new LastFrameMatcher(matcher);
     }
+
+    public PositionalStackMatcher firstFrame(StackFrameMatcher matcher) {
+        return new FirstFrameMatcher(matcher);
+    }
     
     protected final class TrueFilter implements ThreadSnapshotFilter {
         @Override
@@ -245,8 +249,13 @@ public class BasicFilterFactory {
         }
 
         @Override
-        public int matchNext(StackFrameList trace, int matchFrom) {
-            for(int i = trace.depth() - 1; i >= matchFrom; --i) {
+        public int matchNext(ThreadSnapshot snap, int matchFrom) {
+            StackFrameList trace = snap.stackTrace();
+            if (matchFrom > 0) {
+                // assume that match have been found already
+                return -1;
+            }
+            for(int i = matchFrom; i < trace.depth(); ++i) {
                 if (matcher.evaluate(trace.frameAt(i))) {
                     return i;
                 }
@@ -255,7 +264,31 @@ public class BasicFilterFactory {
         }
     }
     
-    protected static class FollowedPredicate implements ThreadSnapshotFilter {
+    protected class FirstFrameMatcher implements PositionalStackMatcher {
+        
+        private final StackFrameMatcher matcher;
+
+        public FirstFrameMatcher(StackFrameMatcher matcher) {
+            this.matcher = matcher;
+        }
+
+        @Override
+        public int matchNext(ThreadSnapshot snap, int matchFrom) {
+            StackFrameList trace = snap.stackTrace();
+            if (matchFrom > 0) {
+                // assume that match have been found already
+                return -1;
+            }
+            for(int i = trace.depth(); i > 0; --i) {
+                if (matcher.evaluate(trace.frameAt(i - 1))) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+    }
+
+    protected static class FollowedPredicate implements ThreadSnapshotFilter, PositionalStackMatcher {
 
         private final PositionalStackMatcher matcher;
         private final ThreadSnapshotFilter tailFilter;
@@ -269,7 +302,7 @@ public class BasicFilterFactory {
         public boolean evaluate(ThreadSnapshot snapshot) {
             int n = -1;
             while(true) {
-                int m = matcher.matchNext(snapshot.stackTrace(), n + 1);
+                int m = matcher.matchNext(snapshot, n + 1);
                 if (m < 0) {
                     break;
                 }
@@ -277,11 +310,30 @@ public class BasicFilterFactory {
             }
             if (n >= 0) {
                 StackFrameList remained = snapshot.stackTrace();
-                remained = remained.fragment(n, remained.depth());
+                remained = remained.fragment(0, n);
                 return tailFilter.evaluate(new ThreadSnapProxy(snapshot, remained)); 
             }
             else {
                 return false;
+            }
+        }
+
+        @Override
+        public int matchNext(ThreadSnapshot snap, int matchFrom) {
+            int n = matchFrom - 1;
+            while(true) {
+                int m = matcher.matchNext(snap, n + 1);
+                if (m < 0) {
+                    if (n >= matchFrom) {
+                        StackFrameList remained = snap.stackTrace();
+                        remained = remained.fragment(0, n);
+                        if (tailFilter.evaluate(new ThreadSnapProxy(snap, remained))) {
+                            return n;
+                        }
+                    }
+                    return -1;
+                }
+                n = m;
             }
         }
     }

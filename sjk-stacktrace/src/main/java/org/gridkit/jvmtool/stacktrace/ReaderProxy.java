@@ -2,7 +2,9 @@ package org.gridkit.jvmtool.stacktrace;
 
 import java.lang.Thread.State;
 
-public class ReaderProxy implements ThreadSnapshot {
+import org.gridkit.jvmtool.stacktrace.StackTraceReader.StackTraceReaderDelegate;
+
+public class ReaderProxy extends StackTraceReaderDelegate implements ThreadSnapshot {
     
     protected StackTraceReader reader;
 
@@ -12,32 +14,37 @@ public class ReaderProxy implements ThreadSnapshot {
     }
 
     @Override
+    protected StackTraceReader getReader() {
+        return reader;
+    }
+
+    @Override
     public long threadId() {
-        return reader.getThreadId();
+        return getThreadId();
     }
 
     @Override
     public String threadName() {
-        return reader.getThreadName();
+        return getThreadName();
     }
 
     @Override
     public long timestamp() {
-        return reader.getTimestamp();
+        return getTimestamp();
     }
 
     @Override
     public StackFrameList stackTrace() {
-        return reader.getStackTrace();
+        return getStackTrace();
     }
 
     @Override
     public State threadState() {
-        return reader.getThreadState();
+        return getThreadState();
     }
 
     @Override
     public CounterCollection counters() {
-        return reader.getCounters();
+        return getCounters();
     }
 }

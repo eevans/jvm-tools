@@ -130,7 +130,7 @@ class HprofHeap implements Heap {
     //~ Constructors -------------------------------------------------------------------------------------------------------------
 
     HprofHeap(File dumpFile, int seg) throws FileNotFoundException, IOException {
-        dumpBuffer = HprofByteBuffer.createHprofByteBuffer(dumpFile);
+        dumpBuffer = HeapFactory.createHprofByteBuffer(dumpFile, HeapFactory.DEFAULT_BUFFER);
         segment = seg;
         fillTagBounds(dumpBuffer.getHeaderSize());
         heapDumpSegment = computeHeapDumpStart();
@@ -139,6 +139,20 @@ class HprofHeap implements Heap {
             fillHeapTagBounds();
         }
 
+        idToOffsetMap = initIdMap();
+        nearestGCRoot = new NearestGCRoot(this);
+    }
+
+    HprofHeap(HprofByteBuffer buffer, int seg) throws FileNotFoundException, IOException {
+        dumpBuffer = buffer;
+        segment = seg;
+        fillTagBounds(dumpBuffer.getHeaderSize());
+        heapDumpSegment = computeHeapDumpStart();
+        
+        if (heapDumpSegment != null) {
+            fillHeapTagBounds();
+        }
+        
         idToOffsetMap = initIdMap();
         nearestGCRoot = new NearestGCRoot(this);
     }
@@ -297,6 +311,17 @@ class HprofHeap implements Heap {
         }
 
         return computedSummary;
+    }
+
+    public synchronized boolean hasSummary() {
+        TagBounds summaryBound = tagBounds[HEAP_SUMMARY];
+        
+        if (summaryBound != null) {
+            return true;
+        }
+        else {
+            return false;
+        }
     }
 
     public Properties getSystemProperties() {

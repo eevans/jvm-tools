@@ -22,12 +22,17 @@ import static org.gridkit.jvmtool.heapdump.HeapWalker.walkFirst;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
 import org.assertj.core.api.Assertions;
+import org.gridkit.jvmtool.heapdump.HeapPathHelper;
 import org.gridkit.jvmtool.heapdump.HeapWalker;
+import org.gridkit.jvmtool.heapdump.InboundAnalyzer;
+import org.junit.Assert;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
@@ -115,6 +120,25 @@ public abstract class BaseHeapTest {
     }
 
     @Test
+    public void verify_inbound_ref_reporter() {
+
+        Heap heap = getHeap();
+        
+        InboundAnalyzer ia = new InboundAnalyzer(heap);
+        ia.initRoots();
+        
+        Instance i = heap.getJavaClassByName(DummyB.class.getName()).getInstances().get(0);
+        ia.mark(i.getInstanceId());
+        
+        int d = 1;
+        while(!ia.isExhausted()) {
+        	System.out.println("\nDepth " + d);
+        	ia.report();
+        	++d;
+        }
+    }
+
+    @Test
     public void verify_heap_walker_for_dummyB_over_map() {
 
         Heap heap = getHeap();
@@ -154,7 +178,7 @@ public abstract class BaseHeapTest {
 
         assertThat(n).isEqualTo(50);
     }
-
+    
     @SuppressWarnings("unused")
     @Test
     public void verify_heap_walker_for_array_list() {
@@ -217,41 +241,36 @@ public abstract class BaseHeapTest {
         assertThat(n).isEqualTo(1);
     }
     
-    private static void assertArrayEquals(Object expected, Object actual) {
-        if (expected instanceof boolean[]) {
-            assertThat(Arrays.toString((boolean[])actual)).isEqualTo(Arrays.toString((boolean[])expected));
-        }
-        else 
-        if (expected instanceof byte[]) {
-            assertThat(Arrays.toString((byte[])actual)).isEqualTo(Arrays.toString((byte[])expected));
-        }
-        else 
-        if (expected instanceof short[]) {
-            assertThat(Arrays.toString((short[])actual)).isEqualTo(Arrays.toString((short[])expected));
-        }
-        else 
-        if (expected instanceof char[]) {
-            assertThat(Arrays.toString((char[])actual)).isEqualTo(Arrays.toString((char[])expected));
-        }
-        else 
-        if (expected instanceof int[]) {
-            assertThat(Arrays.toString((int[])actual)).isEqualTo(Arrays.toString((int[])expected));
-        }
-        else 
-        if (expected instanceof long[]) {
-            assertThat(Arrays.toString((long[])actual)).isEqualTo(Arrays.toString((long[])expected));
-        }
-        else 
-        if (expected instanceof float[]) {
-            assertThat(Arrays.toString((float[])actual)).isEqualTo(Arrays.toString((float[])expected));
-        }
-        else 
-        if (expected instanceof double[]) {
-            assertThat(Arrays.toString((double[])actual)).isEqualTo(Arrays.toString((double[])expected));
-        }
-        else { 
-            Assertions.fail("Array type expected, but was " + actual);
-        }
+    @Test
+    public void verify_heap_path_tracker_over_null() {
+
+        Heap heap = getHeap();
+        JavaClass jclass = heap.getJavaClassByName(DummyD.class.getName());
+        Instance i = jclass.getInstances().get(0);
+        Assert.assertNull(HeapPathHelper.trackFirst(i, "nested.value"));
+        Assert.assertNull(HeapPathHelper.trackFirst(i, "nestedArray[0].value"));
+        Assert.assertEquals(".nestedArray[1].value", HeapPathHelper.trackFirst(i, "nestedArray[*].value"));
+    }
+
+    @Test
+    public void verify_heap_path_walker_over_null() {
+        
+        Heap heap = getHeap();
+        JavaClass jclass = heap.getJavaClassByName(DummyD.class.getName());
+        Instance i = jclass.getInstances().get(0);
+        Assert.assertNull(HeapWalker.walkFirst(i, "nested.value"));
+        Assert.assertNull(HeapWalker.walkFirst(i, "nestedArray[0].value"));
+        Assert.assertEquals("somevalue", HeapWalker.valueOf(HeapWalker.walkFirst(i, "nestedArray[*].value")));
+    }
+
+    @Test
+    public void verify_heap_path_walker_inverted_predicate() {
+    	
+    	Heap heap = getHeap();
+    	
+    	assertSetsAreEqual(a("A", "B", "C", "D", "E"), scan(heap.getAllInstances(), "(**DummyP)key"));
+    	assertSetsAreEqual(a("A", "C", "E"), scan(heap.getAllInstances(), "(**DummyP)[value!=null]key"));
+    	assertSetsAreEqual(a("B", "D"), scan(heap.getAllInstances(), "(**DummyP)[value=null]key"));
     }
     
     @Test
@@ -307,6 +326,120 @@ public abstract class BaseHeapTest {
         assertThat(HeapWalker.valueOf(i, "structArray[*].doubleBoxedField")).isEqualTo(-0.2);
 
         assertThat(HeapWalker.valueOf(i, "structArray[*].textField")).isEqualTo("this is struct #1");
+    }
+
+    @Test
+    public void verify_asterisk_paths() {
+
+        Heap heap = getHeap();
+        JavaClass jclass = heap.getJavaClassByName(DummyN.MyInnerClass.class.getName());
+
+        List<Instance> set = jclass.getInstances();
+		assertThat(set).hasSize(5);
+
+    	
+    	assertSetsAreEqual(a("dummyA", "dummyB"), scan(set, "*(**DummyN).dummyName"));
+    	assertSetsAreEqual(a("dummyA", "dummyB"), scan(set, "*(**DummyN).*"));
+    	assertSetsAreEqual(a("dummyA", "dummyB"), scan(set, "*.dummyName"));
+    	assertSetsAreEqual(a("dummyA"), scan(set, "[innerName=A.1]*(**DummyN).dummyName"));
+    	assertSetsAreEqual(a("dummyB"), scan(set, "[innerName=B.1]*(**DummyN).dummyName"));
+    	assertSetsAreEqual(a("dummyB"), scan(set, "[innerName=B.1]*(**DummyN).*"));
+    	assertSetsAreEqual(a("dummyA"), scan(set, "[innerName=A.4]*.dummyName"));
+    }
+
+    @Test
+    public void verify_single_asterisk_path() {
+    	
+    	Heap heap = getHeap();
+    	JavaClass jclass = heap.getJavaClassByName(DummyA.class.getName());
+    	
+    	List<Instance> set = jclass.getInstances();
+    	
+    	
+    	assertThat(scan(set, "*")).hasSize(50);
+    }
+    
+    private Object[] scan(Iterable<Instance> instances, String path) {
+    	List<Object> val = new ArrayList<Object>();
+    	for(Instance i : instances) {
+    		Object v = HeapWalker.valueOf(i, path);
+    		if (v != null) {
+    			val.add(v);
+    		}
+    	}
+    	return val.toArray(new Object[0]);
+    }
+    
+    private static Object[] a(Object... a) {
+    	return a;
+    }
+    
+    private static void assertSetsAreEqual(Object[] expected, Object... actual) {
+    	Set<Object> e = new HashSet<Object>(Arrays.asList(expected));
+    	Set<Object> a = new HashSet<Object>(Arrays.asList(actual));
+    	
+    	StringBuilder miss = new StringBuilder();
+    	StringBuilder extra = new StringBuilder();
+    	
+    	for(Object x: e) {
+    		if (a.contains(x)) {
+    			a.remove(x);
+    		}
+    		else {
+    			if (miss.length() > 0) {
+    				miss.append(", ");
+    			}
+    			miss.append(x);
+    		}
+    	}
+    	for(Object y: a) {
+			if (extra.length() > 0) {
+				extra.append(", ");
+			}
+			extra.append(y);    		
+    	}
+    	
+    	if (miss.length() > 0 || extra.length() > 0) {
+    		// for better message is IDE
+    		Assert.assertEquals("", "Missing: " + miss + " Unexpected: " + extra);;
+    	}
+    }
+    
+    private static void assertArrayEquals(Object expected, Object actual) {
+        if (expected instanceof boolean[]) {
+            assertThat(Arrays.toString((boolean[])actual)).isEqualTo(Arrays.toString((boolean[])expected));
+        }
+        else 
+        if (expected instanceof byte[]) {
+            assertThat(Arrays.toString((byte[])actual)).isEqualTo(Arrays.toString((byte[])expected));
+        }
+        else 
+        if (expected instanceof short[]) {
+            assertThat(Arrays.toString((short[])actual)).isEqualTo(Arrays.toString((short[])expected));
+        }
+        else 
+        if (expected instanceof char[]) {
+            assertThat(Arrays.toString((char[])actual)).isEqualTo(Arrays.toString((char[])expected));
+        }
+        else 
+        if (expected instanceof int[]) {
+            assertThat(Arrays.toString((int[])actual)).isEqualTo(Arrays.toString((int[])expected));
+        }
+        else 
+        if (expected instanceof long[]) {
+            assertThat(Arrays.toString((long[])actual)).isEqualTo(Arrays.toString((long[])expected));
+        }
+        else 
+        if (expected instanceof float[]) {
+            assertThat(Arrays.toString((float[])actual)).isEqualTo(Arrays.toString((float[])expected));
+        }
+        else 
+        if (expected instanceof double[]) {
+            assertThat(Arrays.toString((double[])actual)).isEqualTo(Arrays.toString((double[])expected));
+        }
+        else { 
+            Assertions.fail("Array type expected, but was " + actual);
+        }
     }
 
     private Set<String> testSet(String pref, int limit) {

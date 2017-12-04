@@ -43,7 +43,6 @@
 
 package org.netbeans.lib.profiler.heap;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.Date;
 import java.util.ResourceBundle;
@@ -53,7 +52,7 @@ import java.util.ResourceBundle;
  *
  * @author Tomas Hurka
  */
-abstract class HprofByteBuffer {
+public abstract class HprofByteBuffer {
     //~ Static fields/initializers -----------------------------------------------------------------------------------------------
 
     // Magic header
@@ -73,31 +72,6 @@ abstract class HprofByteBuffer {
     long time;
 
     //~ Methods ------------------------------------------------------------------------------------------------------------------
-
-    static HprofByteBuffer createHprofByteBuffer(File dumpFile)
-                                          throws IOException {
-        long fileLen = dumpFile.length();
-
-        if (fileLen < MINIMAL_SIZE) {
-            String errText = "File size is too small";
-            throw new IOException(errText);
-        }
-
-        try {
-            if (fileLen < Integer.MAX_VALUE) {
-                return new HprofMappedByteBuffer(dumpFile);
-            } else {
-                return new HprofLongMappedByteBuffer(dumpFile);
-            }
-        } catch (IOException ex) {
-            if (ex.getCause() instanceof OutOfMemoryError) { // can happen on 32bit Windows, since there is only 2G for memory mapped data for whole java process.
-
-                return new HprofFileBuffer(dumpFile);
-            }
-
-            throw ex;
-        }
-    }
 
     abstract char getChar(long index);
 

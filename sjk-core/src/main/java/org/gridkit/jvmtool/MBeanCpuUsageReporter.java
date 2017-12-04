@@ -58,8 +58,13 @@ public class MBeanCpuUsageReporter {
 
 	private long lastTimestamp;
 	private long lastProcessCpuTime;
-	private long lastYougGcCpuTime;
-	private long lastOldGcCpuTime;
+	private long lastProcessOSCpuTime;
+	private long lastProcessOSSysTime;
+	private long lastYougGcTime;
+	private long lastOldGcTime;
+	private long lastSafePointCount;
+	private long lastSafePointTime;
+	private long lastSafePointSyncTime;
 	private BigInteger lastCummulativeCpuTime = BigInteger.valueOf(0);
 	private BigInteger lastCummulativeUserTime  = BigInteger.valueOf(0);
 	private BigInteger lastCummulativeAllocatedAmount = BigInteger.valueOf(0);
@@ -77,6 +82,8 @@ public class MBeanCpuUsageReporter {
 	private boolean threadAllocatedMemoryEnabled;
 	
 	private GcCpuUsageMonitor gcMon;
+	private SafePointMonitor spMon;
+	private NativeThreadMonitor ntMon;
 	
 	public MBeanCpuUsageReporter(MBeanServerConnection mserver) {
 		this.mserver = mserver;
@@ -91,6 +98,14 @@ public class MBeanCpuUsageReporter {
 	
 	public void setGcCpuUsageMonitor(GcCpuUsageMonitor gcMon) {
 	    this.gcMon = gcMon;
+	}
+
+	public void setSafePointMonitor(SafePointMonitor spMon) {
+	    this.spMon = spMon;
+	}
+
+	public void setNativeThreadMonitor(NativeThreadMonitor ntMon) {
+	    this.ntMon = ntMon;
 	}
 	
 	private boolean getThreadingMBeanCapability(String attrName) {
@@ -176,7 +191,10 @@ public class MBeanCpuUsageReporter {
     	    if (threadAllocatedMemoryEnabled) {
     	        long[] alloc = ((ThreadMXBeanEx)mbean).getThreadAllocatedBytes(ids);
     	        for (int i = 0 ; i != ids.length; ++i) {
-    	            threadDump.get(ids[i]).lastAllocatedBytes = alloc[i];
+    	            if (threadDump.get(ids[i]) == null) {
+    	                continue;
+    	            }
+	                threadDump.get(ids[i]).lastAllocatedBytes = alloc[i];
     	        }
     	    }
     	    
@@ -184,12 +202,18 @@ public class MBeanCpuUsageReporter {
     	        long[] cpu = ((ThreadMXBeanEx)mbean).getThreadCpuTime(ids);
     	        long[] usr = ((ThreadMXBeanEx)mbean).getThreadUserTime(ids);
                 for (int i = 0 ; i != ids.length; ++i) {
+                    if (threadDump.get(ids[i]) == null) {
+                        continue;
+                    }
                     threadDump.get(ids[i]).lastCpuTime = cpu[i];
                     threadDump.get(ids[i]).lastUserTime = usr[i];
                 }
     	    }
     	    else {
     	        for(long id: ids) {
+                    if (threadDump.get(id) == null) {
+                        continue;
+                    }
     	            ThreadTrac tt = threadDump.get(id);
     	            tt.lastCpuTime = mbean.getThreadCpuTime(id);
     	            tt.lastUserTime = mbean.getThreadCpuTime(id);
@@ -220,8 +244,13 @@ public class MBeanCpuUsageReporter {
 		long currentTime = System.nanoTime();
 		long timeSplit = currentTime - lastTimestamp;
 		long currentCpuTime = getProcessCpuTime();
-		long currentYoungGcCpuTime = gcMon == null ? 0 : gcMon.getYoungGcCpu();
-		long currentOldGcCpuTime = gcMon == null ? 0 : gcMon.getOldGcCpu();
+		long currentOsSysTime = ntMon == null ? 0 : ntMon.getProcessSysCPU();
+		long currentOsCpuTime = ntMon == null ? 0 : ntMon.getProcessCPU();
+		long currentYoungGcTime = gcMon == null ? 0 : gcMon.getYoungGcCpu();
+		long currentOldGcTime = gcMon == null ? 0 : gcMon.getOldGcCpu();
+		long currentSafePointCount = spMon == null ? 0 : spMon.getSafePointCount();
+		long currentSafePointTime = spMon == null ? 0 : spMon.getSafePointTime();
+		long currentSafePointSyncTime = spMon == null ? 0 : spMon.getSafePointSyncTime();
 		
 		Map<Long,ThreadNote> newNotes = new HashMap<Long, ThreadNote>();
 		
@@ -265,6 +294,7 @@ public class MBeanCpuUsageReporter {
 			}
 		}
 		
+		int threadCount = table.size();
 		if (table.size() >0) {				
 
 			for(Comparator<ThreadLine> cmp: comparators) {
@@ -280,16 +310,44 @@ public class MBeanCpuUsageReporter {
 			double userT = ((double)(deltaUser.longValue())) / timeSplit;
 			double allocRate = ((double)(deltaAlloc.longValue())) * TimeUnit.SECONDS.toNanos(1) / timeSplit;
 
-			double youngGcT = ((double)currentYoungGcCpuTime - lastYougGcCpuTime) / timeSplit;
-			double oldGcT = ((double)currentOldGcCpuTime - lastOldGcCpuTime) / timeSplit;
+			double youngGcT = ((double)currentYoungGcTime - lastYougGcTime) / timeSplit;
+			double oldGcT = ((double)currentOldGcTime - lastOldGcTime) / timeSplit;
+
+			String osproccpu = "";
+			if (currentOsCpuTime > 0) {
+			    double processCpuT = ((double)(currentOsCpuTime - lastProcessOSCpuTime)) / TimeUnit.NANOSECONDS.toMicros(timeSplit);
+			    double processSysT = ((double)(currentOsSysTime - lastProcessOSSysTime)) / TimeUnit.NANOSECONDS.toMicros(timeSplit);
+			    osproccpu = String.format(" (OS usr+sys: %.2f%% sys: %.2f%%)", processCpuT, processSysT);
+			}
 			
 			sb.append(Formats.toDatestamp(System.currentTimeMillis()));
-			sb.append(String.format(" Process summary \n  process cpu=%.2f%%\n  application cpu=%.2f%% (user=%.2f%% sys=%.2f%%)\n  other: cpu=%.2f%% \n", 100 * processT, 100 * cpuT, 100 * userT, 100 * (cpuT - userT), 100 * (processT - cpuT)));
-			if (currentYoungGcCpuTime > 0) {
-			    sb.append(String.format("  GC cpu=%.2f%% (young=%.2f%%, old=%.2f%%)\n", 100 * (youngGcT + oldGcT), 100 * youngGcT, 100 * oldGcT));
+			sb.append(String.format(" Process summary \n  process cpu=%.2f%%%s\n  application cpu=%.2f%% (user=%.2f%% sys=%.2f%%)\n  other: cpu=%.2f%% \n", 100 * processT, osproccpu, 100 * cpuT, 100 * userT, 100 * (cpuT - userT), 100 * (processT - cpuT), threadCount));
+			int osthreadcount = ntMon == null ? 0 : ntMon.getThreadsForProcess().length;
+
+			if (osthreadcount > threadCount) {
+			    sb.append(String.format("  thread count: %d (OS threads: %d)\n", threadCount, osthreadcount));
 			}
+			else {
+			    sb.append(String.format("  thread count: %d\n", threadCount));
+			}
+			if (currentYoungGcTime > 0) {
+			    sb.append(String.format("  GC time=%.2f%% (young=%.2f%%, old=%.2f%%)\n", 100 * (youngGcT + oldGcT), 100 * youngGcT, 100 * oldGcT));
+			}			
 			if (threadAllocatedMemoryEnabled) {
 				sb.append(String.format("  heap allocation rate %sb/s\n", Formats.toMemorySize((long) allocRate)));
+			}
+			if (currentSafePointCount > 0) {
+			    if (currentSafePointCount == lastSafePointCount) {
+			        sb.append(String.format("  no safe points\n"));			    
+			    }
+			    else {
+    			    double spRate = (TimeUnit.SECONDS.toNanos(1) * (double)(currentSafePointCount - lastSafePointCount)) / timeSplit;
+    			    double spCpuUsage = ((double)(currentSafePointTime - lastSafePointTime)) / timeSplit;
+    			    double spSyncCpuUsage = ((double)(currentSafePointSyncTime - lastSafePointSyncTime)) / timeSplit;
+    			    double spAvg = ((double)(currentSafePointTime + currentSafePointSyncTime - lastSafePointTime - lastSafePointSyncTime)) / (currentSafePointCount - lastSafePointCount) / TimeUnit.MILLISECONDS.toNanos(1);
+    			    sb.append(String.format("  safe point rate: %.1f (events/s) avg. safe point pause: %.2fms\n", spRate, spAvg));			    
+    			    sb.append(String.format("  safe point sync time: %.2f%% processing time: %.2f%% (wallclock time)\n", 100 * spSyncCpuUsage, 100 * spCpuUsage));
+			    }
 			}
 			for(ThreadLine line: table) {
 				sb.append(format(line)).append('\n');
@@ -303,8 +361,13 @@ public class MBeanCpuUsageReporter {
 		lastCummulativeUserTime = lastCummulativeUserTime.add(deltaUser);
 		lastCummulativeAllocatedAmount = lastCummulativeAllocatedAmount.add(deltaAlloc);
 		lastProcessCpuTime = currentCpuTime;
-		lastYougGcCpuTime = currentYoungGcCpuTime;
-		lastOldGcCpuTime = currentOldGcCpuTime;
+		lastProcessOSCpuTime = currentOsCpuTime;
+		lastProcessOSSysTime = currentOsSysTime;
+		lastYougGcTime = currentYoungGcTime;
+		lastOldGcTime = currentOldGcTime;
+		lastSafePointCount = currentSafePointCount;
+		lastSafePointTime = currentSafePointTime;
+		lastSafePointSyncTime = currentSafePointSyncTime;
 	
 		cleanDead();
 		

@@ -20,6 +20,7 @@ import java.lang.management.ManagementFactory;
 
 import junit.framework.Assert;
 
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -71,30 +72,30 @@ public class CliCheck {
 		exec("jps", "-pd", "PID", "MAIN", "XMaxHeapSize", "XBackgroundCompilation");
 	}
 
-	@Test
+	@Test @Ignore
 	public void ttop_self() {
 
 		exec("ttop", "-p", PID, "-X");
 	}
 
-	@Test
+	@Test @Ignore
 	public void ttop_top_N_cpu() {
 
 		exec("ttop", "-p", PID, "-o", "CPU", "-n", "10");
 	}
 
-	@Test
+	@Test //@Ignore
 	public void ttop_top_N_alloc() {
 
 		exec("ttop", "-p", PID, "-o", "ALLOC", "-n", "10");
 	}
 
-	@Test
+	@Test @Ignore
 	public void ttop_top_N_filtered() {
 		exec("ttop", "-p", PID, "-f", "*RMI*", "-o", "CPU", "-n", "10");
 	}
 
-	@Test
+	@Test @Ignore
 	public void gc_self() {
 		exec("gc", "-p", PID);
 	}
@@ -111,7 +112,12 @@ public class CliCheck {
 
 	@Test
 	public void hh_dead_young_N_self() {
-	    exec("hh", "-p", PID, "--dead-young", "-n", "20", "-d", "1s");
+	    exec("hh", "-p", PID, "--dead-young", "-n", "20", "-d", "10s");
+	}
+
+	@Test
+	public void hh_young_N_self() {
+	    exec("hh", "-p", PID, "--young", "-n", "20", "-d", "1s");
 	}
 	
 	@Test
@@ -147,6 +153,11 @@ public class CliCheck {
 	@Test
 	public void mx_get_thread_dump() {
 		exec("mx", "-p", PID, "--call", "--bean", "*:type=Threading", "-op", "dumpAllThreads", "-a", "true", "true");
+	}
+
+	@Test
+	public void mx_get_thread_dump_quiet_wide() {
+	    exec("mx", "-p", PID, "--quiet", "--max-col-width", "80", "--call", "--bean", "*:type=Threading", "-op", "dumpAllThreads", "-a", "true", "true");
 	}
 
     @Test
@@ -200,8 +211,38 @@ public class CliCheck {
 	}
 
 	@Test
+	public void ssa_print_x() {
+	    exec("ssa", "--print", "-f", "target/test.cap", "-X");
+	}
+
+	@Test
+	public void ssa_print_trim() {
+	    exec("ssa", "--print", "-tt", "javax.management.StandardMBean.invoke/+**", "-f", "target/test.stp");
+	}
+
+	@Test
+	public void ssa_print_thread_name() {
+	    exec("ssa", "--print", "-tn", "RMI TCP Connection.*", "-f", "target/test.stp");
+	}
+
+	@Test
+	public void ssa_print_time_range() {
+	    exec("ssa", "--print", "-tr", "02:11-02:12", "-tn", "RMI TCP Connection.*", "-f", "target/test.stp");
+	}
+
+	@Test
 	public void ssa_histo() {
 	    exec("ssa", "--histo", "-f", "target/test.stp", "-X");
+	}
+
+	@Test
+	public void ssa_histo_wild_card() {
+		exec("ssa", "--histo", "-f", "target/*.stp", "-X");
+	}
+
+	@Test
+	public void ssa_histo_with_classes() {
+	    exec("ssa", "--histo", "-co", "-f", "target/test.stp", "-nc", "IO=java.net.SocketInputStream", "GridKit=org.gridkit", "-X");
 	}
 
     @Test
@@ -216,16 +257,81 @@ public class CliCheck {
 
 	@Test
 	public void ssa_histo_with_filter() {
-	    exec("ssa", "--histo", "-sf", "javax.management.remote.rmi.RMIConnectionImpl.invoke", "-f", "target/test.stp");
+	    exec("ssa", "--histo", "-tf", "javax.management.remote.rmi.RMIConnectionImpl.invoke", "-f", "target/test.stp");
 	}
 
 	@Test
-	public void ssa_summary() {
-	    exec("ssa", "--summary", "-c", "src/test/resources/sample-seam-jsf-profile.shp", "-f", "target/test.stp");
+	public void ssa_histo_with_trim() {
+	    exec("ssa", "--histo", "-tt", "javax.management.remote.rmi.RMIConnectionImpl.invoke/+**", "-f", "target/test.stp");
+	}
+
+	@Test
+	public void ssa_histo_with_trim2() {
+	    exec("ssa", "--histo", "-tt", "javax.management.remote.rmi.RMIConnectionImpl.invoke", "-f", "target/test.stp");
+	}
+
+	@Test
+	public void ssa_histo_with_trim3() {
+	    exec("ssa", "--histo", "-tf", "**!**.jdbc", "-tt", "org.hibernate", "-f", "../sjk-stacktrace/src/test/resources/jboss-10k.std");
+	}
+
+	@Test
+	public void ssa_flame() {
+	    exec("ssa", "--flame", "-f", "target/test.stp");
+	}
+
+	@Test
+	public void ssa_flame_with_trim() {
+	    exec("ssa", "--flame", "-tt", "javax.management.remote.rmi.RMIConnectionImpl.invoke", "-f", "target/test.stp");
+	}
+
+	@Test
+	public void ssa_flame_rainbow() {
+	    exec("ssa", "--flame", "-f", "target/test.stp");
 	}
 	
-	private void exec(String... cmd) {
-		SJK sjk = new SJK();
+	@Test
+	public void ssa_categorize() {
+	    exec("ssa", "--categorize", "-co", "-cf", "src/test/resources/sample-seam-jsf-profile.ctz", "-f", "../sjk-stacktrace/src/test/resources/jboss-10k.std");
+	}
+
+	@Test
+	public void ssa_categorize_nc() {
+	    exec("ssa", "--categorize", "-nc", "JDBC=**.jdbc", "-f", "../sjk-stacktrace/src/test/resources/jboss-10k.std");
+	}
+
+	@Test
+	public void ssa_thread_info() {
+	    exec("ssa", "--thread-info", "-f", "target/test.stp", "-X");
+	}
+
+	@Test
+	public void ssa_thread_info_2() {
+	    exec("ssa", "--thread-info", "-si", "NAME", "FREQ", "FREQ_HM", "GAP_CHM", "TSMIN", "TSMAX", "CPU", "SYS", "-f", "target/test.stp", "-X");
+	}
+
+	@Test
+	public void ssa_thread_info_3() {
+	    exec("ssa", "--thread-info", "-si", "NAME8", "ALLOC", "Sock=java.net.SocketInputStream.socketRead0", "-f", "target/test.stp", "-X");
+	}
+
+    @Test
+    public void ssa_help() {
+        exec("ssa", "--ssa-help");
+    }
+	
+    @Test
+    public void dexp_help() {
+    	exec("dexp", "--help");
+    }
+
+    @Test
+    public void dexp_tags() {
+    	exec("dexp", "--tags", "-f",  "target/test.stp");
+    }
+
+    private void exec(String... cmd) {
+	    SJK sjk = new SJK();
 		sjk.suppressSystemExit();
 		StringBuilder sb = new StringBuilder();
 		sb.append("SJK");
@@ -237,7 +343,7 @@ public class CliCheck {
 	}
 
 	private void fail(String... cmd) {
-		SJK sjk = new SJK();
+	    SJK sjk = new SJK();
 		sjk.suppressSystemExit();
 		StringBuilder sb = new StringBuilder();
 		sb.append("SJK");

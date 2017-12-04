@@ -24,8 +24,8 @@ import javax.management.ObjectName;
 
 import org.gridkit.jvmtool.JmxConnectionInfo;
 import org.gridkit.jvmtool.MBeanHelper;
-import org.gridkit.jvmtool.SJK;
-import org.gridkit.jvmtool.SJK.CmdRef;
+import org.gridkit.jvmtool.cli.CommandLauncher;
+import org.gridkit.jvmtool.cli.CommandLauncher.CmdRef;
 
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
@@ -39,7 +39,7 @@ public class MxCmd implements CmdRef {
 	}
 
 	@Override
-	public Runnable newCommand(SJK host) {
+	public Runnable newCommand(CommandLauncher host) {
 		return new MX(host);
 	}
 
@@ -47,16 +47,22 @@ public class MxCmd implements CmdRef {
 	public static class MX implements Runnable {
 		
 		@ParametersDelegate
-		private SJK host;
+		private CommandLauncher host;
 		
 		@ParametersDelegate
-		private JmxConnectionInfo connInfo = new JmxConnectionInfo();
+		private JmxConnectionInfo connInfo;
 
 		@Parameter(names={"-b", "--bean"}, required = true, description="MBean name")
 		private String mbean;
 		
 		@Parameter(names={"-f", "--field", "--attribute"}, description="MBean attribute")
 		String attrib = null;
+
+        @Parameter(names={"--quiet"}, description="Avoid non-essential output")
+        boolean quiet = false;
+
+        @Parameter(names={"--max-col-width"}, description="Table column width threshold for formating tabular data")
+		int maxWidth = 40;
 		
 		@ParametersDelegate
 		private CallCmd call = new CallCmd();
@@ -73,8 +79,9 @@ public class MxCmd implements CmdRef {
 		@ParametersDelegate
 		private InfoCmd info = new InfoCmd();
 
-		public MX(SJK host) {
+		public MX(CommandLauncher host) {
 			this.host = host;
+			this.connInfo = new JmxConnectionInfo(host);
 		}
 
 		@Override
@@ -94,11 +101,11 @@ public class MxCmd implements CmdRef {
 					action.add(info);
 				}
 				if (action.isEmpty() || action.size() > 1) {
-					SJK.failAndPrintUsage("You should choose one of --info, --get, --set, --call");
+					host.failAndPrintUsage("You should choose one of --info, --get, --set, --call");
 				}
 				action.get(0).run();
 			} catch (Exception e) {
-				SJK.fail(e.toString(), e);
+				host.fail(e.toString(), e);
 			}
 		}
 
@@ -106,14 +113,14 @@ public class MxCmd implements CmdRef {
 			ObjectName name = new ObjectName(mbean);
 			Set<ObjectName> beans = conn.queryNames(name, null);
 			if (beans.isEmpty()) {
-				SJK.fail("MBean not found: " + mbean);
+				host.fail("MBean not found: " + mbean);
 			}
             if (!all && beans.size() > 1) {
                 StringBuilder sb = new StringBuilder();
                 for(ObjectName n: beans) {
                     sb.append('\n').append(n);
                 }
-                SJK.fail("Ambiguous MBean selection. Use '-all' param for process all matched MBeans" + sb.toString());
+                host.fail("Ambiguous MBean selection. Use '-all' param for process all matched MBeans" + sb.toString());
 			}
 			return beans;
 		}
@@ -133,17 +140,20 @@ public class MxCmd implements CmdRef {
 			public void run() {
 				try {
 					if (operation == null) {
-						SJK.failAndPrintUsage("MBean operation name is missing");
+						host.failAndPrintUsage("MBean operation name is missing");
 					}
 					MBeanServerConnection conn = connInfo.getMServer();
                     Set<ObjectName> names = resolveSingleBean(conn);
 					MBeanHelper helper = new MBeanHelper(conn);
+                    helper.setFormatingOption(MBeanHelper.FORMAT_TABLE_COLUMN_WIDTH_THRESHOLD, maxWidth);
                     for (ObjectName name : names) {
-                        System.out.println(name);
+                        if (!quiet) {
+                            System.out.println(name);
+                        }
                         System.out.println(helper.invoke(name, operation, arguments.toArray(new String[arguments.size()])));
                     }
 				} catch (Exception e) {
-					SJK.fail(e.toString(), e);
+					host.fail(e.toString(), e);
 				}
 			}
 		}
@@ -157,17 +167,20 @@ public class MxCmd implements CmdRef {
 			public void run() {
 				try {
 					if (attrib == null) {
-						SJK.failAndPrintUsage("MBean operation name is missing");
+						host.failAndPrintUsage("MBean operation name is missing");
 					}
 					MBeanServerConnection conn = connInfo.getMServer();
                     Set<ObjectName> names = resolveSingleBean(conn);
 					MBeanHelper helper = new MBeanHelper(conn);
+					helper.setFormatingOption(MBeanHelper.FORMAT_TABLE_COLUMN_WIDTH_THRESHOLD, maxWidth);
                     for (ObjectName name : names) {
-                        System.out.println(name);
+                        if (!quiet) {
+                            System.out.println(name);
+                        }
 					    System.out.println(helper.get(name, attrib));
                     }
 				} catch (Exception e) {
-					SJK.fail(e.toString(), e);
+					host.fail(e.toString(), e);
 				}
 			}
 		}
@@ -184,20 +197,22 @@ public class MxCmd implements CmdRef {
 			public void run() {
 				try {
 					if (attrib == null) {
-						SJK.failAndPrintUsage("MBean attribute name is missing");
+						host.failAndPrintUsage("MBean attribute name is missing");
 					}
 					if (value == null) {
-						SJK.failAndPrintUsage("Value is required");
+						host.failAndPrintUsage("Value is required");
 					}
 					MBeanServerConnection conn = connInfo.getMServer();
                     Set<ObjectName> names = resolveSingleBean(conn);
 					MBeanHelper helper = new MBeanHelper(conn);
                     for (ObjectName name : names) {
-                        System.out.println(name);
+                        if (!quiet) {
+                            System.out.println(name);
+                        }
                         helper.set(name, attrib, value);
                     }
 				} catch (Exception e) {
-					SJK.fail(e.toString(), e);
+					host.fail(e.toString(), e);
 				}
 			}
 		}
@@ -217,7 +232,7 @@ public class MxCmd implements CmdRef {
                         System.out.println(helper.describe(name));
                     }
 				} catch (Exception e) {
-					SJK.fail(e.toString(), e);
+					host.fail(e.toString(), e);
 				}
 			}
 		}

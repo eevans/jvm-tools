@@ -39,10 +39,25 @@ import javax.management.openmbean.TabularData;
 
 public class MBeanHelper {
 	
+    public static String FORMAT_TABLE_COLUMN_WIDTH_THRESHOLD = "table.column.maxWidth";
+    public static String FORMAT_COMPOSITE_FIELD_WIDTH_THRESHODL = "composite.field.maxWidth";
+    
 	private MBeanServerConnection mserver;
+	
+	private int widthThresholdTable = 40;
+	private int widthThresholdComposite = 1000;
 	
 	public MBeanHelper(MBeanServerConnection connection) {
 		this.mserver = connection;
+	}
+	
+	public void setFormatingOption(String name, Object value) {
+	    if (FORMAT_TABLE_COLUMN_WIDTH_THRESHOLD.equals(name)) {
+	        widthThresholdTable = (Integer) value;
+	    }
+	    else if (FORMAT_COMPOSITE_FIELD_WIDTH_THRESHODL.equals(name)) {
+	        widthThresholdComposite = (Integer) value;
+	    }
 	}
 	
 	public String get(ObjectName bean, String attr) throws Exception {
@@ -117,7 +132,7 @@ public class MBeanHelper {
 			for(Object row: td) {
 				content.add(formatRow((CompositeData)row, header));
 			}
-			return formatTable(content, 40, true);			
+			return formatTable(content, widthThresholdTable, true);			
 		}
 		else if (v instanceof TabularData) {
 			TabularData td = (TabularData) v;
@@ -133,7 +148,7 @@ public class MBeanHelper {
 			for(Object row: td.values()) {
 				content.add(formatRow((CompositeData)row, header));
 			}
-			return formatTable(content, 40, true);
+			return formatTable(content, widthThresholdTable, true);
 		}
 		else if (v instanceof CompositeData) {
 			CompositeData cd = (CompositeData)v;
@@ -142,7 +157,7 @@ public class MBeanHelper {
 				String val = formatLine(cd.get(field), cd.getCompositeType().getType(field).getClassName());
 				content.add(new String[]{field + ": ", val});
 			}
-			return formatTable(content, 1000, false);
+			return formatTable(content, widthThresholdComposite, false);
 		}
 		else {
 			return formatLine(v, type);
@@ -276,18 +291,28 @@ public class MBeanHelper {
 
 	private Object convert(String value, String type) {
 		if (type.equals("java.lang.String")) {
+			if ("<null>".equals(value.trim()))
+				return null;
 			return value;
 		}
-		if (type.equals("boolean")) {
+		if (type.equals("boolean") || type.equals("java.lang.Boolean")) {
+			if (type.equals("java.lang.Boolean") && value.trim().isEmpty())
+				return null;
 			return Boolean.valueOf(value);
 		}
-		else if (type.equals("byte")) {
+		else if (type.equals("byte") || type.equals("java.lang.Byte")) {
+			if (type.equals("java.lang.Byte") && value.trim().isEmpty())
+				return null;
 			return Byte.valueOf(value);
 		}
-		else if (type.equals("short")) {
+		else if (type.equals("short") || type.equals("java.lang.Short")) {
+			if (type.equals("java.lang.Short") && value.trim().isEmpty())
+				return null;
 			return Short.valueOf(value);
 		}
-		else if (type.equals("char")) {
+		else if (type.equals("char") || type.equals("java.lang.Character")) {
+			if (type.equals("java.lang.Character") && value.trim().isEmpty())
+				return null;
 			if (value.length() == 1) {
 				return value.charAt(0);
 			}
@@ -295,19 +320,29 @@ public class MBeanHelper {
 				throw new IllegalArgumentException("Cannot convert '" + value + "' to " + type);
 			}
 		}
-		else if (type.equals("int")) {
+		else if (type.equals("int") || type.equals("java.lang.Integer")) {
+			if (type.equals("java.lang.Integer") && value.trim().isEmpty())
+				return null;
 			return Integer.valueOf(value);
 		}
-		else if (type.equals("long")) {
+		else if (type.equals("long") || type.equals("java.lang.Long")) {
+			if (type.equals("java.lang.Long") && value.trim().isEmpty())
+				return null;
 			return Long.valueOf(value);
 		}
-		else if (type.equals("float")) {
+		else if (type.equals("float") || type.equals("java.lang.Float")) {
+			if (type.equals("java.lang.Float") && value.trim().isEmpty())
+				return null;
 			return Float.valueOf(value);
 		}
-		else if (type.equals("double")) {
+		else if (type.equals("double") || type.equals("java.lang.Double")) {
+			if (type.equals("java.lang.Double") && value.trim().isEmpty())
+				return null;
 			return Double.valueOf(value);
 		}
 		else if (type.startsWith("[")) {
+			if (value.trim().isEmpty())
+				return null;
 			String[] elements = value.split("[,]");
 			Object array = ARRAY_MAP.get(type);
 			if (array == null) {

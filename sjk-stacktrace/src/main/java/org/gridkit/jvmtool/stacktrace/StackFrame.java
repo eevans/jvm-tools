@@ -1,7 +1,11 @@
 package org.gridkit.jvmtool.stacktrace;
 
-public class StackFrame implements CharSequence {
+import java.util.Comparator;
 
+public class StackFrame implements CharSequence, GenericStackElement {
+
+    public static final Comparator<StackFrame> COMPARATOR = new FrameComparator();
+    
     private static final String NATIVE_METHOD = "Native Method";
     private static final String UNKNOWN_SOURCE = "Unknown Source";
 
@@ -46,7 +50,15 @@ public class StackFrame implements CharSequence {
             lineNumberDigits = NO_LINE_NUMBER;
         }
         else {
-            lineNumberDigits = (short) String.valueOf(lineNumber).length();
+            lineNumberDigits = (short) (
+                    lineNumber < 10 ? 1 :
+                    lineNumber < 100 ? 2 :
+                    lineNumber < 1000 ? 3 :
+                    lineNumber < 10000 ? 4 :
+                    lineNumber < 100000 ? 5 :
+                    lineNumber < 1000000 ? 6 :
+                    String.valueOf(lineNumber).length()
+            );
         }
         int len = calcLen();
         if (len > Short.MAX_VALUE) {
@@ -55,7 +67,7 @@ public class StackFrame implements CharSequence {
         else {
             textLen = (short) len;
         }
-        hash = toString().hashCode();
+        hash = genHash();
     }
 
     private int calcLen() {
@@ -102,6 +114,10 @@ public class StackFrame implements CharSequence {
 
     public int getLineNumber() {
         return lineNumber;
+    }
+
+    public boolean isNative() {
+        return lineNumber == NATIVE;
     }
 
     public StackFrame internSymbols() {
@@ -260,6 +276,13 @@ public class StackFrame implements CharSequence {
         return true;
     }
 
+    /**
+     * @return stack frame instance with removed source information
+     */
+    public StackFrame withoutSource() {
+        return new StackFrame(classPrefix, className, methodName, null, -1);
+    }
+
     public StackTraceElement toStackTraceElement() {
         String cn = classPrefix == null ? className : (classPrefix + '.' + className);
         return new StackTraceElement(cn, methodName, fileName, lineNumber);
@@ -268,6 +291,61 @@ public class StackFrame implements CharSequence {
     @Override
     public String toString() {
         return toString(this);
+    }
+    
+    public void toString(StringBuilder builder) {
+        if (classPrefix != null) {
+            builder.append(classPrefix).append('.');
+        }
+        builder.append(className).append('.');
+        builder.append(methodName).append('(');
+        switch(lineNumberDigits) {
+            case NO_LINE_NUMBER:
+                builder.append(fileName);
+                break;
+            case NO_SOURCE:
+                builder.append(UNKNOWN_SOURCE);
+                break;
+            case NATIVE:
+                builder.append(NATIVE_METHOD);
+                break;
+            default:
+                builder.append(fileName).append(':').append(lineNumber);
+        }
+        builder.append(')');
+    }
+
+    private int genHash() {
+        int hash = 1033;
+        if (classPrefix != null) {
+            hash = hashText(hash, classPrefix);
+            hash = 31 * hash + '.';
+        }
+        hash = hashText(hash, className);
+        hash = 31 * hash + '.';
+        hash = hashText(hash, methodName);
+        switch(lineNumberDigits) {
+            case NO_LINE_NUMBER:
+                hash = hashText(hash, fileName);
+                break;
+            case NO_SOURCE:
+                hash = 31 * hash + -1;
+                break;
+            case NATIVE:
+                hash = 31 * hash + -2;
+                break;
+            default:
+                hash = hashText(hash, fileName);
+                hash = 31 * hash + lineNumber;
+        }
+        return hash;
+    }
+    
+    private int hashText(int hash, String text) {
+        for(int i = 0; i != text.length(); ++i) {
+            hash = 31 * hash + text.charAt(i);
+        }
+        return hash;
     }
 
     private static String toString(CharSequence seq) {
@@ -278,7 +356,7 @@ public class StackFrame implements CharSequence {
         return new String(buf);
     }
 
-    public static StackFrame parseTrace(String line) {
+    public static StackFrame parseFrame(String line) {
         StringBuilder sb = new StringBuilder(line.length());
         int dot1 = -1;
         int dot2 = -1;
@@ -396,4 +474,42 @@ public class StackFrame implements CharSequence {
             return StackFrame.toString(this);
         }
     }
+    
+    private static class FrameComparator implements Comparator<StackFrame> {
+
+        @Override
+        public int compare(StackFrame o1, StackFrame o2) {
+            int n = compare(o1.getClassName(), o2.getClassName());
+            if (n != 0) {
+                return n;
+            }
+            n = compare(o1.getLineNumber(), o2.getLineNumber());
+            if (n != 0) {
+                return n;
+            }
+            n = compare(o1.getMethodName(), o2.getMethodName());
+            if (n != 0) {
+                return n;
+            }
+            n = compare(o1.getSourceFile(), o2.getSourceFile());
+            return 0;
+        }
+
+        private int compare(int n1, int n2) {            
+            return Long.signum(((long)n1) - ((long)n2));
+        }
+
+        private int compare(String str1, String str2) {
+            if (str1 == str2) {
+                return 0;
+            }
+            else if (str1 == null) {
+                return -1;
+            }
+            else if (str2 == null) {
+                return 1;
+            }
+            return str1.compareTo(str2);
+        }
+    }    
 }

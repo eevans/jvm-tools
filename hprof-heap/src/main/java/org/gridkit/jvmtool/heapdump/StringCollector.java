@@ -18,6 +18,7 @@ package org.gridkit.jvmtool.heapdump;
 import org.gridkit.jvmtool.heapdump.HeapHistogram.ClassRecord;
 import org.netbeans.lib.profiler.heap.FieldValue;
 import org.netbeans.lib.profiler.heap.Heap;
+import org.netbeans.lib.profiler.heap.IllegalInstanceIDException;
 import org.netbeans.lib.profiler.heap.Instance;
 import org.netbeans.lib.profiler.heap.JavaClass;
 import org.netbeans.lib.profiler.heap.ObjectFieldValue;
@@ -53,8 +54,14 @@ public class StringCollector {
                 callback.feed(i);
             }
         }
+        arrays.set(0, false); // skip null reference
         for(Long id: arrays.ones()) {
-            totalSize += heap.getInstanceByID(id).getSize();
+            try {
+                totalSize += heap.getInstanceByID(id).getSize();
+            }
+            catch(IllegalInstanceIDException e) {
+                // ignore
+            }
         }
     }
 

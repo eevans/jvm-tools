@@ -16,11 +16,16 @@
 package org.netbeans.lib.profiler.heap;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.zip.GZIPOutputStream;
 
 import org.gridkit.lab.jvm.attach.HeapDumper;
+import org.junit.Test;
 
 public class HeapDumpProcuder {
 
@@ -31,35 +36,99 @@ public class HeapDumpProcuder {
     }
 
     private static String HEAP_DUMP_PATH = "target/dump/test.dump";
+    private static String HEAP_DUMP_GZ_PATH = "target/dump/test.dump.gz";
 
     public static File getHeapDump() {
         File file = new File(HEAP_DUMP_PATH);
         if (!file.exists()) {
             System.out.println("Generating heap dump: " + HEAP_DUMP_PATH);
-            initTestHeap();
+            holder.initTestHeap();
             System.out.println(HeapDumper.dumpLive(PID, HEAP_DUMP_PATH, 120000));
         }
         return file;
     }
 
-    static List<DummyA> dummyA = new ArrayList<DummyA>();
-    static List<DummyB> dummyB = new ArrayList<DummyB>();
-    static DummyC dummyC = new DummyC();
-
-    public static void initTestHeap() {
-
-        for(int i = 0; i != 50; ++i) {
-            dummyA.add(new DummyA());
-        }
-
-        for(int i = 0; i != 50; ++i) {
-            DummyB dmb = new DummyB();
-            dmb.seqNo = String.valueOf(i);
-            for(int j = 0; j != i; ++j) {
-                dmb.list.add(String.valueOf(j));
-                dmb.map.put("k" + String.valueOf(j), "v" + String.valueOf(j));
+    public static File getCompressedHeapDump() throws IOException {
+        File file = new File(HEAP_DUMP_GZ_PATH);
+        if (!file.exists()) {
+            System.out.println("Generating compressing heap dump: " + HEAP_DUMP_GZ_PATH);
+            FileInputStream fis = new FileInputStream(getHeapDump());
+            FileOutputStream fos = new FileOutputStream(file);
+            GZIPOutputStream gzos = new GZIPOutputStream(fos);
+            byte[] buf = new byte[64 << 10];
+            int n = 0;
+            while(true) {
+                n = fis.read(buf);
+                if (n < 0) {
+                    break;
+                }
+                gzos.write(buf, 0, n);
             }
-            dummyB.add(dmb);
+            gzos.close();
+            fis.close();
+            fos.close();
         }
+        return file;
+    }
+    
+    // Called manually from IDE to clean cached dump
+    @Test
+    public void cleanDump() {
+        new File(HEAP_DUMP_PATH).delete();
+        new File(HEAP_DUMP_GZ_PATH).delete();
+    }
+
+    static Holder holder = new Holder();
+    
+    static class Holder { 
+    
+	    List<DummyA> dummyA = new ArrayList<DummyA>();
+	    List<DummyB> dummyB = new ArrayList<DummyB>();
+	    DummyC dummyC = new DummyC();
+	    DummyD dummyD = new DummyD();
+	    {
+	        dummyD.nestedArray = new DummyD.Sub[2];
+	        dummyD.nestedArray[1] = new DummyD.Sub();
+	        dummyD.nestedArray[1].value = "somevalue";
+	    }
+	    
+	    DummyP[] dummyP = {
+	    		new DummyP("A", "X"),
+	    		new DummyP("B", null),
+	    		new DummyP("C", 1),
+	    		new DummyP("D", null),
+	    		new DummyP("E", new Object[0]),
+	    };
+	
+	    Object[] dummyN;
+	    {
+	    	DummyN a = new DummyN("dummyA");
+	    	DummyN b = new DummyN("dummyB");
+	    	
+	    	dummyN = new Object[] {
+	    		a.newInner("A.1"),
+	    		a.newInner("A.2"),
+	    		a.newInner("A.3"),
+	    		b.newInner("B.1"),
+	    		a.newInner("A.4"),
+	    	};
+	    }
+	    
+	    public void initTestHeap() {
+	
+	        for(int i = 0; i != 50; ++i) {
+	            dummyA.add(new DummyA());
+	        }
+	
+	        for(int i = 0; i != 50; ++i) {
+	            DummyB dmb = new DummyB();
+	            dmb.seqNo = String.valueOf(i);
+	            for(int j = 0; j != i; ++j) {
+	                dmb.list.add(String.valueOf(j));
+	                dmb.map.put("k" + String.valueOf(j), "v" + String.valueOf(j));
+	            }
+	            dummyB.add(dmb);
+	        }
+	    }
     }
 }

@@ -25,6 +25,7 @@ import javax.management.remote.JMXConnector;
 import javax.management.remote.JMXConnectorFactory;
 import javax.management.remote.JMXServiceURL;
 
+import org.gridkit.jvmtool.cli.CommandLauncher;
 import org.gridkit.lab.jvm.attach.AttachManager;
 
 import com.beust.jcommander.Parameter;
@@ -36,6 +37,8 @@ import com.beust.jcommander.Parameter;
  */
 public class JmxConnectionInfo {
 
+    private CommandLauncher commandHost;
+    
 	@Parameter(names = {"-p", "--pid"}, description = "JVM process PID")
 	private Long pid;
 	
@@ -48,23 +51,27 @@ public class JmxConnectionInfo {
 	@Parameter(names = {"--password"}, description="Password for JMX authentication (only for socket connection)")
 	private String password = null;
 
+	public JmxConnectionInfo(CommandLauncher host) {
+        this.commandHost = host;
+    }
+	
 	public Long getPID() {
 	    return pid;
 	}
 	
 	public MBeanServerConnection getMServer() {
 		if (pid == null && sockAddr == null) {
-			SJK.failAndPrintUsage("JVM process is not specified");
+			commandHost.failAndPrintUsage("JVM process is not specified");
 		}
 		
 		if (pid != null && sockAddr != null) {
-			SJK.failAndPrintUsage("You can specify eigther PID or JMX socket connection");
+		    commandHost.failAndPrintUsage("You can specify eigther PID or JMX socket connection");
 		}
 
 		if (pid != null) {
 			MBeanServerConnection mserver = AttachManager.getDetails(pid).getMBeans();
 			if (mserver == null) {
-			    SJK.fail("Failed to access MBean server: " + pid);
+			    commandHost.fail("Failed to access MBean server: " + pid);
 			}
             return mserver;
 		}
@@ -74,13 +81,13 @@ public class JmxConnectionInfo {
 			Map<String, Object> env = null;
 			if (user != null || password != null) {
 				if (user == null || password == null) {
-					SJK.failAndPrintUsage("Both user and password required for authentication");
+				    commandHost.failAndPrintUsage("Both user and password required for authentication");
 				}
 				env = Collections.singletonMap(JMXConnector.CREDENTIALS, (Object)new String[]{user, password});
 			}
 			MBeanServerConnection mserver = connectJmx(host, port, env);
             if (mserver == null) {
-                SJK.fail("Failed to access MBean server: " + host + ":" + port);
+                commandHost.fail("Failed to access MBean server: " + host + ":" + port);
             }
             return mserver;
 		}
@@ -92,16 +99,21 @@ public class JmxConnectionInfo {
 	@SuppressWarnings("resource")
 	private MBeanServerConnection connectJmx(String host, int port, Map<String, Object> props) {
 		try {
-			final String uri = "service:jmx:rmi:///jndi/rmi://" + host + ":" + port + "/jmxrmi";
+                        String proto = System.getProperty("jmx.service.protocol", "rmi");
+
+                        final String uri = "rmi".equals(proto) ?
+                          "service:jmx:rmi:///jndi/rmi://" + host + ":" + port + "/jmxrmi" :
+                          "service:jmx:" + proto + "://" + host + ":" + port;
+                  
 			JMXServiceURL jmxurl = new JMXServiceURL(uri);						
 			JMXConnector conn = props == null ? JMXConnectorFactory.connect(jmxurl) : JMXConnectorFactory.connect(jmxurl, props);
 			// TODO credentials
 			MBeanServerConnection mserver = conn.getMBeanServerConnection();
 			return mserver;
 		} catch (MalformedURLException e) {
-			SJK.fail("JMX Connection failed: " + e.toString(), e);
+		    commandHost.fail("JMX Connection failed: " + e.toString(), e);
 		} catch (IOException e) {
-			SJK.fail("JMX Connection failed: " + e.toString(), e);
+		    commandHost.fail("JMX Connection failed: " + e.toString(), e);
 		}
 		return null;
 	}
@@ -109,7 +121,7 @@ public class JmxConnectionInfo {
 	private String host(String sockAddr) {
 		int c = sockAddr.indexOf(':');
 		if (c <= 0) {
-			SJK.fail("Invalid socket address: " + sockAddr);
+		    commandHost.fail("Invalid socket address: " + sockAddr);
 		}
 		return sockAddr.substring(0, c);
 	}
@@ -117,12 +129,12 @@ public class JmxConnectionInfo {
 	private int port(String sockAddr) {
 		int c = sockAddr.indexOf(':');
 		if (c <= 0) {
-			SJK.fail("Invalid socket address: " + sockAddr);
+		    commandHost.fail("Invalid socket address: " + sockAddr);
 		}
 		try {
 			return Integer.valueOf(sockAddr.substring(c + 1));
 		} catch (NumberFormatException e) {
-			SJK.fail("Invalid socket address: " + sockAddr);
+		    commandHost.fail("Invalid socket address: " + sockAddr);
 			return 0;
 		}
 	}

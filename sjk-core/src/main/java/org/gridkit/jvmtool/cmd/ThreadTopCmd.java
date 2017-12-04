@@ -15,6 +15,8 @@
  */
 package org.gridkit.jvmtool.cmd;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -25,9 +27,10 @@ import org.gridkit.jvmtool.GlobHelper;
 import org.gridkit.jvmtool.JmxConnectionInfo;
 import org.gridkit.jvmtool.MBeanCpuUsageReporter;
 import org.gridkit.jvmtool.PerfCounterGcCpuUsageMonitor;
-import org.gridkit.jvmtool.SJK;
-import org.gridkit.jvmtool.SJK.CmdRef;
-import org.gridkit.jvmtool.TimeIntervalConverter;
+import org.gridkit.jvmtool.PerfCounterSafePointMonitor;
+import org.gridkit.jvmtool.cli.CommandLauncher;
+import org.gridkit.jvmtool.cli.TimeIntervalConverter;
+import org.gridkit.jvmtool.cli.CommandLauncher.CmdRef;
 
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.Parameters;
@@ -46,7 +49,7 @@ public class ThreadTopCmd implements CmdRef {
 	}
 
 	@Override
-	public Runnable newCommand(SJK host) {
+	public Runnable newCommand(CommandLauncher host) {
 		return new TTop(host);
 	}
 
@@ -54,7 +57,7 @@ public class ThreadTopCmd implements CmdRef {
 	public static class TTop implements Runnable {
 
 		@ParametersDelegate
-		private SJK host;
+		private CommandLauncher host;
 		
 		@Parameter(names = {"-ri", "--report-interval"}, converter = TimeIntervalConverter.class, description = "Interval between CPU usage reports")
 		private long reportIntervalMS = TimeUnit.SECONDS.toMillis(10);
@@ -63,19 +66,20 @@ public class ThreadTopCmd implements CmdRef {
 		private long samplerIntervalMS = 500;
 		
 		@Parameter(names = {"-n", "--top-number"}, description = "Number of threads to show")
-		private int topNumber = Integer.MAX_VALUE;
+		private int topNumber = 20;
 		
 		@Parameter(names = {"-o", "--order"}, variableArity = true, description = "Sort order. Value tags: CPU, USER, SYS, ALLOC, NAME")
-		private List<String> sortOrder;
+		private List<String> sortOrder = new ArrayList<String>(Arrays.asList("CPU"));
 		
-		@Parameter(names = {"-f", "--filter"}, description = "Wild card expression to filter thread by name")
+		@Parameter(names = {"-f", "--filter"}, description = "Wild card expression to filter threads by name")
 		private String threadFilter;
 		
 		@ParametersDelegate
-		private JmxConnectionInfo connInfo = new JmxConnectionInfo();
+		private JmxConnectionInfo connInfo;
 		
-		public TTop(SJK host) {
+		public TTop(CommandLauncher host) {
 			this.host = host;
+			this.connInfo = new JmxConnectionInfo(host);
 		}
 
 		@Override
@@ -89,7 +93,17 @@ public class ThreadTopCmd implements CmdRef {
 				    try {
     				    long pid = connInfo.getPID();
     				    PerfCounterGcCpuUsageMonitor pm = new PerfCounterGcCpuUsageMonitor(pid);
-    				    tmon.setGcCpuUsageMonitor(pm);
+    				    if (pm.isAvailable()) {
+    				        tmon.setGcCpuUsageMonitor(pm);
+    				    }
+    				    PerfCounterSafePointMonitor sm = new PerfCounterSafePointMonitor(pid);
+    				    if (sm.isAvailable()) {
+    				        tmon.setSafePointMonitor(sm);
+    				    }
+//    				    NativeThreadMonitor tm = PlatformProcessInfoProvider.createMonitor(pid);
+//    				    if (tm != null) {
+//    				        tmon.setNativeThreadMonitor(tm);
+//    				    }
 				    }
 				    catch(Exception e) {
 				        // ignore
@@ -121,7 +135,7 @@ public class ThreadTopCmd implements CmdRef {
 							tmon.sortByThreadName();
 						}
 						else {
-							SJK.failAndPrintUsage("Invalid order option '" + tag + "'");
+							host.failAndPrintUsage("Invalid order option '" + tag + "'");
 						}
 					}
 				}
@@ -143,7 +157,7 @@ public class ThreadTopCmd implements CmdRef {
 					}
 				}
 			} catch (Exception e) {
-				SJK.fail("Unexpected error: " + e.toString(), e);
+				host.fail("Unexpected error: " + e.toString(), e);
 			}			
 		}
 	}

@@ -30,9 +30,9 @@ import javax.management.MBeanServerConnection;
 
 import org.gridkit.jvmtool.GlobHelper;
 import org.gridkit.jvmtool.JmxConnectionInfo;
-import org.gridkit.jvmtool.SJK;
-import org.gridkit.jvmtool.SJK.CmdRef;
-import org.gridkit.jvmtool.TimeIntervalConverter;
+import org.gridkit.jvmtool.cli.CommandLauncher;
+import org.gridkit.jvmtool.cli.TimeIntervalConverter;
+import org.gridkit.jvmtool.cli.CommandLauncher.CmdRef;
 import org.gridkit.jvmtool.stacktrace.StackFrame;
 import org.gridkit.jvmtool.stacktrace.StackTraceCodec;
 import org.gridkit.jvmtool.stacktrace.StackTraceWriter;
@@ -57,7 +57,7 @@ public class StackCaptureCmd implements CmdRef {
 	}
 
 	@Override
-	public Runnable newCommand(SJK host) {
+	public Runnable newCommand(CommandLauncher host) {
 		return new StCap(host);
 	}
 
@@ -65,34 +65,34 @@ public class StackCaptureCmd implements CmdRef {
 	public static class StCap implements Runnable {
 
 		@ParametersDelegate
-		private SJK host;
+		private CommandLauncher host;
 		
 		@Parameter(names = {"-i", "--sampler-interval"}, converter = TimeIntervalConverter.class, description = "Interval between polling MBeans")
 		private long samplerIntervalMS = 0;
 		
-		@Parameter(names = {"-f", "--filter"}, description = "Wild card expression to filter thread by name")
+		@Parameter(names = {"-f", "--filter"}, description = "Filter threads by name (Java RegEx syntax)")
 		private String threadFilter = ".*";
 
 		@Parameter(names = {"-e", "--empty"}, description = "Retain threads without stack trace in dump (ignored by default)")
 		private boolean retainEmptyTraces = false;
 
-		@Parameter(names = {"-m", "--match-frame"}, variableArity = true, description = "Frame filter, only trace conatining this string would be included to dump")
+		@Parameter(names = {"-m", "--match-frame"}, variableArity = true, description = "Frame filter, only traces conatining this string will be included to dump")
 		private List<String> frameFilter;
 
-	    @Parameter(names = {"-o", "--output"}, required = true, description = "Name of file to write thread dump")
+	    @Parameter(names = {"-o", "--output"}, required = true, description = "Name of file to write thread dump to")
 	    private String outputFile;
 
 	    @Parameter(names = {"-l", "--limit"}, description = "Target number of traces to collect, once reached command will terminate (0 - unlimited)")
 	    private long limit = 0;
 
-        @Parameter(names = {"-t", "--timeout"}, converter = TimeIntervalConverter.class, description = "Time untill command will terminate even if not enough traces collected")
+        @Parameter(names = {"-t", "--timeout"}, converter = TimeIntervalConverter.class, description = "Time until command terminate even without enough traces collected")
         private long timeoutMS = TimeUnit.SECONDS.toMillis(30);
 
-        @Parameter(names = {"-r", "--rotate"}, description = "If specified output file would be rotate every N traces (0 - do not rotate)")
+        @Parameter(names = {"-r", "--rotate"}, description = "If specified output file would be rotated every N traces (0 - do not rotate)")
         private long fileLimit = 0;
 
 		@ParametersDelegate
-		private JmxConnectionInfo connInfo = new JmxConnectionInfo();
+		private JmxConnectionInfo connInfo;
 
 		private ThreadDumpSampler sampler;
 		private long traceCounter = 0;
@@ -101,8 +101,9 @@ public class StackCaptureCmd implements CmdRef {
 
         private StackTraceWriter writer;
 		
-		public StCap(SJK host) {
+		public StCap(CommandLauncher host) {
 			this.host = host;
+			this.connInfo = new JmxConnectionInfo(host);
 		}
 		
 		@Override
@@ -149,7 +150,7 @@ public class StackCaptureCmd implements CmdRef {
 				System.out.println("Trace dumped: " + traceCounter);
 				
 			} catch (Exception e) {
-				SJK.fail("Unexpected error: " + e.toString(), e);
+				host.fail("Unexpected error: " + e.toString(), e);
 			}			
 		}
 

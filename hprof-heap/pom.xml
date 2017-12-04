@@ -23,7 +23,7 @@
   <parent>
     <groupId>org.gridkit.jvmtool</groupId>
     <artifactId>jvmtool-umbrella-pom</artifactId>
-    <version>0.3.7</version>
+    <version>0.8.1</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
@@ -32,6 +32,11 @@
   <description>HPROF heap dump parser</description>
 
   <dependencies>
+    <dependency>
+      <groupId>org.gridkit.gzrand</groupId>
+      <artifactId>gzrand</artifactId>
+      <version>0.2</version>
+    </dependency>
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>

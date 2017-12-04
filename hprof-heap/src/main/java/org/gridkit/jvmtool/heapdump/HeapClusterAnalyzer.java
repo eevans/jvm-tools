@@ -19,13 +19,13 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Set;
 
 import org.gridkit.jvmtool.heapdump.PathStep.Move;
 import org.netbeans.lib.profiler.heap.Field;
 import org.netbeans.lib.profiler.heap.FieldValue;
 import org.netbeans.lib.profiler.heap.Heap;
+import org.netbeans.lib.profiler.heap.IllegalInstanceIDException;
 import org.netbeans.lib.profiler.heap.Instance;
 import org.netbeans.lib.profiler.heap.JavaClass;
 import org.netbeans.lib.profiler.heap.ObjectArrayInstance;
@@ -206,11 +206,16 @@ public class HeapClusterAnalyzer {
         RefSet marked = cluster.objects;
         for(Long id: marked.ones()) {
             if (knownRefs.getAndSet(id, true)) {
-                Instance i = heap.getInstanceByID(id);
-                sharedErrorMargin += i.getSize();
-                if (!sharedRefs.getAndSet(id, true)) {
+                try {
+                    Instance i = heap.getInstanceByID(id);
                     sharedErrorMargin += i.getSize();
-                    sharedSummary.accumulate(i);
+                    if (!sharedRefs.getAndSet(id, true)) {
+                        sharedErrorMargin += i.getSize();
+                        sharedSummary.accumulate(i);
+                    }
+                }
+                catch(IllegalInstanceIDException e) {
+                    System.err.println("Object missing in dump: " + id);
                 }
             }
         }
@@ -218,16 +223,16 @@ public class HeapClusterAnalyzer {
 
     private void analyze(Cluster details) {
         if (!useBreadthSearch) {
-        StringBuilder path = new StringBuilder();
-        for(EntryPoint ep: entryPoints) {
-            path.setLength(0);
-            path.append("(" + shortName(details.root.getJavaClass().getName()) + ")");
-            for(Move i: HeapPath.track(details.root, ep.locator)) {
-                path.append(i.pathSpec);
-                walk(details, i.instance, path, 0, false, false);
+            StringBuilder path = new StringBuilder();
+            for(EntryPoint ep: entryPoints) {
+                path.setLength(0);
+                path.append("(" + shortName(details.root.getJavaClass().getName()) + ")");
+                for(Move i: HeapPath.track(details.root, ep.locator)) {
+                    path.append(i.pathSpec);
+                    walk(details, i.instance, path, 0, false, false);
+                }
             }
         }
-    }
         else {
             for(EntryPoint ep: entryPoints) {
                 for(Instance i: HeapPath.collect(details.root, ep.locator)) {
@@ -367,53 +372,60 @@ public class HeapClusterAnalyzer {
                     continue;
                 }
 
-                Instance i = heap.getInstanceByID(id);
-                if (blacklist.contains(i.getJavaClass().getName())) {
+                try {
+                    Instance i = heap.getInstanceByID(id);
+                    if (blacklist.contains(i.getJavaClass().getName())) {
+                        ignoreRefs.set(id, true);
+                        continue;
+                    }
+    
+                    if (details.objects.getAndSet(id, true)) {
+                        continue;
+                    }
+                    
+                    ++count;
+                    
+                    @SuppressWarnings("unused")
+                    String type = i.getJavaClass().getName();
+                    
+                    if (!accountShared || sharedRefs.get(i.getInstanceId())) {
+                        details.summary.accumulate(i);
+                    }
+                    
+                    if (i instanceof ObjectArrayInstance) {
+                        ObjectArrayInstance array = (ObjectArrayInstance) i;
+                        if (!isBlackListedArray(array.getJavaClass())) {
+                            for(Long ref: array.getValueIDs()) {
+                                if (ref != 0) {
+                                    // early check to avoid needless instantiation
+                                    if (!ignoreRefs.get(ref) && !details.objects.get(ref)) {
+                                        queue.set(ref, true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        for(FieldValue f: i.getFieldValues()) {
+                            @SuppressWarnings("unused")
+                            String fieldName = f.getField().getName();
+                            if (f instanceof ObjectFieldValue) {
+                                ObjectFieldValue of = (ObjectFieldValue) f;
+                                if (!isBlackListed(of.getField())) {
+                                    long ref = of.getInstanceId();
+                                    // early check to avoid instantiation
+                                    if (!ignoreRefs.get(ref) && !details.objects.get(ref)) {
+                                        queue.set(ref, true);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                catch(IllegalInstanceIDException e) {
                     ignoreRefs.set(id, true);
+                    System.err.println("Object missing in dump: " + id);
                     continue;
-                }
-
-                if (details.objects.getAndSet(id, true)) {
-                    continue;
-                }
-
-                ++count;
-
-                @SuppressWarnings("unused")
-                String type = i.getJavaClass().getName();
-
-                if (!accountShared || sharedRefs.get(i.getInstanceId())) {
-                    details.summary.accumulate(i);
-                }
-
-                if (i instanceof ObjectArrayInstance) {
-                    ObjectArrayInstance array = (ObjectArrayInstance) i;
-                    if (!isBlackListedArray(array.getJavaClass())) {
-                        for(Long ref: array.getValueIDs()) {
-                            if (ref != 0) {
-                                // early check to avoid needless instantiation
-                                if (!ignoreRefs.get(ref) && !details.objects.get(ref)) {
-                                    queue.set(ref, true);
-                                }
-                            }
-                        }
-                    }
-                }
-                else {
-                    for(FieldValue f: i.getFieldValues()) {
-                        @SuppressWarnings("unused")
-                        String fieldName = f.getField().getName();
-                        if (f instanceof ObjectFieldValue) {
-                            ObjectFieldValue of = (ObjectFieldValue) f;
-                            if (!isBlackListed(of.getField())) {
-                                long ref = of.getInstanceId();
-                                // early check to avoid instantiation
-                                if (!ignoreRefs.get(ref) && !details.objects.get(ref)) {
-                                    queue.set(ref, true);
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -442,25 +454,7 @@ public class HeapClusterAnalyzer {
     private final class DeepPathListener implements PathListener {
         @Override
         public void onPath(Instance root, String path, Instance shared) {
-            PathStep[] chain = HeapPath.parsePath(path, true);
-            StringBuilder sb = new StringBuilder();
-            Instance o = root;
-            for(int i = 0; i != chain.length; ++i) {
-                if (chain[i] instanceof TypeFilterStep) {
-                    continue;
-                }
-                sb.append("(" + shortName(o.getJavaClass().getName()) + ")");
-                try {
-                Move m = chain[i].track(o).next();
-                sb.append(m.pathSpec);
-                o = m.instance;
-            }
-                catch(NoSuchElementException e) {
-                    sb.append("{failed: " + chain[i] + "}");
-                }
-            }
-
-            System.err.println("DEEP REF: " + root.getInstanceId() + " " + sb);
+            System.err.println("DEEP REF: " + root.getInstanceId() + " " + HeapWalker.explainPath(root, path));
         }
     }
 
